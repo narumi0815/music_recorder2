@@ -1,6 +1,7 @@
+
 package com.example.myapplication
 
-// import android.R
+import android.content.Context
 import android.media.MediaPlayer
 import android.os.Bundle
 import android.os.Handler
@@ -10,34 +11,33 @@ import android.view.View
 import android.widget.Button
 import android.widget.SeekBar
 import android.widget.TextView
+import android.util.Log
+import java.io.FileOutputStream
+import java.io.IOException
+import java.text.SimpleDateFormat
+import java.util.*
 
 class MainActivity : AppCompatActivity() {
 
     private var playBtn: Button? = null
+    private var prevBtn: Button? = null
+    private var skipBtn: Button? = null
     private var positionBar: SeekBar? = null
     private var volumeBar: SeekBar? = null
     private var elapsedTimeLabel: TextView? = null
     private var remainingTimeLabel: TextView? = null
     private var mp: MediaPlayer? = null
     private var totalTime: Int = 0
+    private var playNumber: Int = 0
+    private var playing : Boolean = false
+    private var txtMemo : TextView? = null
+    // Media Playerの初期化
+    private var musicList = mutableListOf(R.raw.music437322, R.raw.music447468, R.raw.music329319, R.raw.music481521, R.raw.music496413)
+    var musicListShuffuled : List<Int> = musicList.shuffled(Random(0))
+    var musicFile: Int = musicListShuffuled[playNumber]
+    var musicId : Int = musicFile - musicListShuffuled.min()!!
 
-    //    private Handler handler = new Handler() {
-    //        @Override
-    //        public void handleMessage(Message msg) {
-    //            int currentPosition = msg.what;
-    //
-    //            // 再生位置を更新
-    //            positionBar.setProgress(currentPosition);
-    //
-    //            // 経過時間ラベル更新
-    //            String elapsedTime = createTimeLabel(currentPosition);
-    //            elapsedTimeLabel.setText(elapsedTime);
-    //
-    //            // 残り時間ラベル更新
-    //            String remainingTime = createTimeLabel(totalTime-currentPosition);
-    //            remainingTimeLabel.setText("- " + remainingTime);
-    //        }
-    //    };
+    // private val fis = openFileInput("lyric_id_name.txt")
 
     //（オプション）Warning解消
     private val handler = Handler(Handler.Callback { msg ->
@@ -56,19 +56,37 @@ class MainActivity : AppCompatActivity() {
         true
     })
 
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
         playBtn = findViewById(R.id.playBtn)
+        prevBtn = findViewById(R.id.prevBtn)
+        skipBtn = findViewById(R.id.skipBtn)
         elapsedTimeLabel = findViewById(R.id.elapsedTimeLabel)
         remainingTimeLabel = findViewById(R.id.remainingTimeLabel)
+        txtMemo = findViewById(R.id.txtMemo) as TextView
 
-        // Media Playerの初期化
-        var musicFile: Int = R.raw.music437322
+        musicFile = musicListShuffuled[playNumber]
+        musicId = musicFile - musicListShuffuled.min()!!
+
+        val fis = openFileInput("title_artist.txt")
+        fis.bufferedReader().use { reader ->
+            var str = reader.readLine()
+            var counter = 0
+            while( str != null ) {
+                if (counter == musicId) {
+                    //Log.d("TAG", "再生したmusicは" + str)
+                    txtMemo!!.text = str
+                    break
+                }
+                str = reader.readLine()
+                counter++
+            }
+        }
+
         mp = MediaPlayer.create(this, musicFile)
-        mp!!.isLooping = true
+        mp!!.isLooping = false
         mp!!.seekTo(0)
         mp!!.setVolume(0.5f, 0.5f)
         totalTime = mp!!.duration
@@ -120,6 +138,57 @@ class MainActivity : AppCompatActivity() {
                     msg.what = mp!!.currentPosition
                     handler.sendMessage(msg)
                     Thread.sleep(1000)
+                    if (positionBar!!.max == positionBar!!.progress) {
+
+                        //ファイルに鑑賞履歴を記録
+                        musicId = musicFile - musicListShuffuled.min()!!
+                        val saveData : String = getToday() + "  " + musicId
+
+                        try {
+                            // 追記書き込みでオープン (=Context.MODE_APPEND)
+                            val outputstream: FileOutputStream = openFileOutput("musicrecode.txt", Context.MODE_APPEND)
+                            outputstream.write(saveData.toByteArray())
+                            outputstream.write("\n".toByteArray())
+                            outputstream.close()
+                        } catch (e: IOException) {
+                            e.printStackTrace();
+                        }
+
+                        playNumber += 1
+                        if (playNumber == musicList.count()) {
+                            playNumber = 0
+                        }
+
+                        musicFile = musicListShuffuled[playNumber]
+                        mp = MediaPlayer.create(this, musicFile)
+                        mp!!.isLooping = false
+                        mp!!.seekTo(0)
+                        mp!!.setVolume(0.5f, 0.5f)
+                        totalTime = mp!!.duration
+
+                        // 再生位置
+                        positionBar = findViewById(R.id.positionBar)
+                        positionBar!!.max = totalTime
+                        positionBar!!.setOnSeekBarChangeListener(
+                            object : SeekBar.OnSeekBarChangeListener {
+                                override fun onProgressChanged(seekBar: SeekBar, progress: Int, fromUser: Boolean) {
+                                    if (fromUser) {
+                                        mp!!.seekTo(progress)
+                                        positionBar!!.progress = progress
+                                    }
+                                }
+
+                                override fun onStartTrackingTouch(seekBar: SeekBar) {
+                                }
+
+                                override fun onStopTrackingTouch(seekBar: SeekBar) {
+                                }
+                            }
+                        )
+
+                        mp!!.start()
+
+                    }
                 } catch (e: InterruptedException) {
                 }
 
@@ -144,12 +213,147 @@ class MainActivity : AppCompatActivity() {
         if (!mp!!.isPlaying) {
             // 停止中
             mp!!.start()
+            //Log.d("TAG", "musicリストは" + musicListShuffuled)
             playBtn!!.setBackgroundResource(R.drawable.stop)
+            playing = true
 
         } else {
             // 再生中
             mp!!.pause()
             playBtn!!.setBackgroundResource(R.drawable.play)
+            playing = false
         }
+    }
+
+    fun skipBtnClick(view: View) {
+        if (playing == true) {
+            playBtn!!.setBackgroundResource(R.drawable.stop)
+        } else {
+            playBtn!!.setBackgroundResource(R.drawable.play)
+        }
+        mp!!.stop()
+        mp!!.prepare()
+
+
+        playNumber += 1
+        if (playNumber == musicList.count()) {
+            playNumber = 0
+        }
+        val musicFile: Int = musicListShuffuled[playNumber]
+        // Log.d("TAG", "リストの長さは" + i)
+        mp = MediaPlayer.create(this, musicFile)
+        mp!!.isLooping = false
+        mp!!.seekTo(0)
+        mp!!.setVolume(0.5f, 0.5f)
+        totalTime = mp!!.duration
+
+        // 再生位置
+        positionBar = findViewById(R.id.positionBar)
+        positionBar!!.max = totalTime
+        positionBar!!.setOnSeekBarChangeListener(
+            object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: SeekBar, progress: Int, fromUser: Boolean) {
+                    if (fromUser) {
+                        mp!!.seekTo(progress)
+                        positionBar!!.progress = progress
+                    }
+                }
+
+                override fun onStartTrackingTouch(seekBar: SeekBar) {
+                }
+
+                override fun onStopTrackingTouch(seekBar: SeekBar) {
+                }
+            }
+        )
+
+        musicId = musicFile - musicListShuffuled.min()!!
+        val fis = openFileInput("title_artist.txt")
+        fis.bufferedReader().use { reader ->
+            var str = reader.readLine()
+            var counter = 0
+            while( str != null ) {
+                if (counter == musicId) {
+                    txtMemo!!.text = str
+                    break
+                }
+                str = reader.readLine()
+                counter++
+            }
+        }
+
+        if (playing == true) {
+            mp!!.start()
+        }
+
+    }
+
+    fun prevBtnClick(view: View) {
+        if (playing == true) {
+            playBtn!!.setBackgroundResource(R.drawable.stop)
+        } else {
+            playBtn!!.setBackgroundResource(R.drawable.play)
+        }
+        mp!!.stop()
+        mp!!.prepare()
+
+
+        playNumber -= 1
+        if (playNumber < 0) {
+            playNumber = musicList.count() - 1
+        }
+        val musicFile: Int = musicListShuffuled[playNumber]
+        // Log.d("TAG", "リストの長さは" + i)
+        mp = MediaPlayer.create(this, musicFile)
+        mp!!.isLooping = false
+        mp!!.seekTo(0)
+        mp!!.setVolume(0.5f, 0.5f)
+        totalTime = mp!!.duration
+
+        // 再生位置
+        positionBar = findViewById(R.id.positionBar)
+        positionBar!!.max = totalTime
+        positionBar!!.setOnSeekBarChangeListener(
+            object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: SeekBar, progress: Int, fromUser: Boolean) {
+                    if (fromUser) {
+                        mp!!.seekTo(progress)
+                        positionBar!!.progress = progress
+                    }
+                }
+
+                override fun onStartTrackingTouch(seekBar: SeekBar) {
+                }
+
+                override fun onStopTrackingTouch(seekBar: SeekBar) {
+                }
+            }
+        )
+
+        musicId = musicFile - musicListShuffuled.min()!!
+        val fis = openFileInput("title_artist.txt")
+        fis.bufferedReader().use { reader ->
+            var str = reader.readLine()
+            var counter = 0
+            while( str != null ) {
+                if (counter == musicId) {
+                    txtMemo!!.text = str
+                    break
+                }
+                str = reader.readLine()
+                counter++
+            }
+        }
+
+        if (playing == true) {
+            mp!!.start()
+        }
+
+    }
+
+    fun getToday(): String {
+        val date = Date()
+        val format = SimpleDateFormat("yyyy/MM/dd/ HH:mm:ss", Locale.getDefault())
+        return format.format(date)
     }
 }
